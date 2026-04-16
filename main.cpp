@@ -119,6 +119,7 @@ private:
 
     bool hasActive = false;
     Request active;
+    bool memRequestSent = false;
 
     State state = State::Idle;
 
@@ -178,14 +179,17 @@ private:
         auto d = decode(active.address);
         Line& l = lines[d.idx];
 
-        if (!memory.isBusy()) {
+        if (!memRequestSent) {
             memory.startWrite(d.block, l.words);
             memValid = true;
             memWrite = true;
+            memRequestSent = true;
             action = "Writing back";
-        } else if (memory.isReady()) {
+        }
+        else if (memory.isReady()) {
             l.dirty = false;
             state = State::Allocate;
+            memRequestSent = false;  // ✅ RESET
             action = "WriteBack done";
         }
     }
@@ -194,11 +198,13 @@ private:
         auto d = decode(active.address);
         Line& l = lines[d.idx];
 
-        if (!memory.isBusy()) {
+        if (!memRequestSent) {
             memory.startRead(d.block);
             memValid = true;
+            memRequestSent = true;
             action = "Reading from memory";
-        } else if (memory.isReady()) {
+        }
+        else if (memory.isReady()) {
             l.words = memory.getReadBuffer();
             l.valid = true;
             l.dirty = false;
@@ -211,6 +217,7 @@ private:
             cpuReady = true;
             hasActive = false;
             state = State::Idle;
+            memRequestSent = false;  // ✅ RESET
             action = "Allocate done";
         }
     }
@@ -243,3 +250,4 @@ int main() {
         c.tick(cycle++);
     }
 }
+
