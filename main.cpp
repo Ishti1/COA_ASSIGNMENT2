@@ -155,6 +155,7 @@ private:
         Line& l = lines[d.idx];
 
         if (l.valid && l.tag == d.tag) {
+            // HIT logic remains the same
             cpuReady = true;
             action = "Hit";
             if (active.type == Request::Type::Write) {
@@ -164,14 +165,16 @@ private:
             hasActive = false;
             state = State::Idle;
         } else {
+            // MISS logic
             if (l.valid && l.dirty) {
                 state = State::WriteBack;
                 action = "Miss -> WriteBack";
+                // CRITICAL: Do NOT update l.tag here.
+                // We need l.tag to calculate the eviction address.
             } else {
                 state = State::Allocate;
                 action = "Miss -> Allocate";
             }
-            l.tag = d.tag;
         }
     }
 
@@ -180,7 +183,11 @@ private:
         Line& l = lines[d.idx];
 
         if (!memRequestSent) {
-            memory.startWrite(d.block, l.words);
+            // Reconstruct the OLD block address using the tag currently in the cache
+            // block = (tag << index_bits) | index
+            uint32_t evictionBlockAddr = (l.tag << 2) | d.idx;
+
+            memory.startWrite(evictionBlockAddr, l.words);
             memValid = true;
             memWrite = true;
             memRequestSent = true;
@@ -189,7 +196,7 @@ private:
         else if (memory.isReady()) {
             l.dirty = false;
             state = State::Allocate;
-            memRequestSent = false; 
+            memRequestSent = false;
             action = "WriteBack done";
         }
     }
@@ -208,6 +215,7 @@ private:
             l.words = memory.getReadBuffer();
             l.valid = true;
             l.dirty = false;
+            l.tag = d.tag; // ✅ Update the tag ONLY after the old data is gone and new data arrives
 
             if (active.type == Request::Type::Write) {
                 l.words[d.off] = active.writeData;
@@ -217,7 +225,7 @@ private:
             cpuReady = true;
             hasActive = false;
             state = State::Idle;
-            memRequestSent = false; 
+            memRequestSent = false;
             action = "Allocate done";
         }
     }
@@ -240,6 +248,7 @@ int main() {
     vector<Request> seq = {
         {Request::Type::Read, 0x0, 0, 1},
         {Request::Type::Write, 0x40, 0xDEADBEEF, 2},
+        {Request::Type::Read, 0x0, 0, 3},
         {Request::Type::Read, 0x0, 0, 3}
     };
 
